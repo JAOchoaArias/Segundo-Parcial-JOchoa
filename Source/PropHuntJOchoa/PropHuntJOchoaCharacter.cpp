@@ -4,16 +4,23 @@
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/DamageEvents.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "Public/Interfaces/BPI_Interactable.h"
 #include "PropHuntJOchoa.h"
+#include "Net/UnrealNetwork.h"
+
 
 APropHuntJOchoaCharacter::APropHuntJOchoaCharacter()
 {
+	bReplicates = true;
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -46,8 +53,10 @@ APropHuntJOchoaCharacter::APropHuntJOchoaCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
-	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+	DisguiseMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DisguiseMeshComponent"));
+	DisguiseMeshComponent->SetupAttachment(GetCapsuleComponent());
+	DisguiseMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	DisguiseMeshComponent->SetVisibility(false);
 }
 
 void APropHuntJOchoaCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -70,6 +79,14 @@ void APropHuntJOchoaCharacter::SetupPlayerInputComponent(UInputComponent* Player
 	{
 		UE_LOG(LogPropHuntJOchoa, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
 	}
+}
+
+void APropHuntJOchoaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME(APropHuntJOchoaCharacter, CurrentRole);
+	DOREPLIFETIME(APropHuntJOchoaCharacter, CurrentDisguiseMesh);
 }
 
 void APropHuntJOchoaCharacter::Move(const FInputActionValue& Value)
@@ -130,4 +147,132 @@ void APropHuntJOchoaCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void APropHuntJOchoaCharacter::TryInteract()
+{
+	if (CurrentRole != EPlayerRole::Prop)
+	{
+		return;
+	}
+
+	FVector CamLoc;
+	FRotator CamRot;
+	GetActorEyesViewPoint(CamLoc, CamRot);
+
+	const FVector TraceEnd = CamLoc + (CamRot.Vector() * 450.0f);
+	FHitResult HitResult;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	if (GetWorld()->LineTraceSingleByChannel(HitResult, CamLoc, TraceEnd, ECC_Visibility, Params))
+	{
+		if (HitResult.GetActor() && HitResult.GetActor()->Implements<UBPI_Interactable>())
+		{
+			IBPI_Interactable* Interactable = Cast<IBPI_Interactable>(HitResult.GetActor());
+			if (Interactable)
+			{
+				FVector Loc, Scale;
+				FRotator Rot;
+				Interactable->GetPropMeshTransform(Loc, Rot, Scale);
+				Server_SetDisguise(Interactable->GetPropMesh(), Scale);
+			}
+		}
+	}
+}
+
+void APropHuntJOchoaCharacter::PerformHunterAttack()
+{
+	if (CurrentRole != EPlayerRole::Hunter)
+	{
+		return;
+	}
+
+	FVector CamLoc;
+	FRotator CamRot;
+	GetActorEyesViewPoint(CamLoc, CamRot);
+
+	const FVector TraceEnd = CamLoc + (CamRot.Vector() * 500.0f);
+	Server_ExecuteAttack(CamLoc, TraceEnd);
+}
+
+void APropHuntJOchoaCharacter::Server_SetDisguise_Implementation(UStaticMesh* NewMesh, FVector NewScale)
+{
+	if (!NewMesh)
+	{
+		return;
+	}
+
+	CurrentDisguiseMesh = NewMesh;
+	DisguiseMeshComponent->SetWorldScale3D(NewScale);
+	UpdateCapsuleDimensions(NewMesh, NewScale);
+	
+	OnRep_CurrentDisguiseMesh();
+}
+
+void APropHuntJOchoaCharacter::Server_ExecuteAttack_Implementation(const FVector& TraceStart, const FVector& TraceEnd)
+{
+	FHitResult HitResult;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	const bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, Params);
+
+	if (bHit && HitResult.GetActor())
+	{
+		APropHuntJOchoaCharacter* TargetCharacter = Cast<APropHuntJOchoaCharacter>(HitResult.GetActor());
+		if (TargetCharacter && TargetCharacter->CurrentRole == EPlayerRole::Prop)
+		{
+			TargetCharacter->TakeDamage(25.0f, FDamageEvent(), GetController(), this);
+			return;
+		}
+	}
+	
+	TakeDamage(5.0f, FDamageEvent(), GetController(), this);
+}
+
+void APropHuntJOchoaCharacter::OnRep_Role()
+{
+	if (CurrentRole == EPlayerRole::Hunter)
+	{
+		DisguiseMeshComponent->SetVisibility(false);
+		GetMesh()->SetVisibility(true);
+	}
+	else if (CurrentRole == EPlayerRole::Prop && CurrentDisguiseMesh)
+	{
+		GetMesh()->SetVisibility(false);
+		DisguiseMeshComponent->SetVisibility(true);
+	}
+}
+
+void APropHuntJOchoaCharacter::OnRep_CurrentDisguiseMesh()
+{
+	if (CurrentDisguiseMesh)
+	{
+		GetMesh()->SetVisibility(false);
+		DisguiseMeshComponent->SetStaticMesh(CurrentDisguiseMesh);
+		DisguiseMeshComponent->SetVisibility(true);
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+		DisguiseMeshComponent->SetVisibility(false);
+	}
+}
+
+void APropHuntJOchoaCharacter::UpdateCapsuleDimensions(UStaticMesh* Mesh, FVector& Scale)
+{
+	if (!Mesh)
+	{
+		return;
+	}
+
+	const FBoxSphereBounds Bounds = Mesh->GetBounds();
+	const float Radius = FMath::Max(Bounds.BoxExtent.X * Scale.X, Bounds.BoxExtent.Y * Scale.Y);
+	const float HalfHeight = FMath::Max(Radius, Bounds.BoxExtent.Z * Scale.Z);
+
+	GetCapsuleComponent()->SetCapsuleSize(
+		FMath::Clamp(Radius, 20.0f, 150.0f),
+		FMath::Clamp(HalfHeight, 30.0f, 250.0f)
+	);
 }
