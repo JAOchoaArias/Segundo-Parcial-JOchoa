@@ -107,6 +107,10 @@ void APropHuntJOchoaCharacter::Look(const FInputActionValue& Value)
 	DoLook(LookAxisVector.X, LookAxisVector.Y);
 }
 
+void APropHuntJOchoaCharacter::UpdateCapsuleDimensions(UStaticMesh* Mesh2, FVector& Scale)
+{
+}
+
 void APropHuntJOchoaCharacter::DoMove(float Right, float Forward)
 {
 	if (GetController() != nullptr)
@@ -258,21 +262,4 @@ void APropHuntJOchoaCharacter::OnRep_CurrentDisguiseMesh()
 		GetMesh()->SetVisibility(true);
 		DisguiseMeshComponent->SetVisibility(false);
 	}
-}
-
-void APropHuntJOchoaCharacter::UpdateCapsuleDimensions(UStaticMesh* Mesh, FVector& Scale)
-{
-	if (!Mesh)
-	{
-		return;
-	}
-
-	const FBoxSphereBounds Bounds = Mesh->GetBounds();
-	const float Radius = FMath::Max(Bounds.BoxExtent.X * Scale.X, Bounds.BoxExtent.Y * Scale.Y);
-	const float HalfHeight = FMath::Max(Radius, Bounds.BoxExtent.Z * Scale.Z);
-
-	GetCapsuleComponent()->SetCapsuleSize(
-		FMath::Clamp(Radius, 20.0f, 150.0f),
-		FMath::Clamp(HalfHeight, 30.0f, 250.0f)
-	);
 }

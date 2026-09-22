@@ -63,9 +63,6 @@ protected:
 	
 	UPROPERTY(EditAnywhere, Category="Input")
 	TObjectPtr<UInputAction> AttackAction;
-
-	
-protected:
 	
 	UPROPERTY(ReplicatedUsing = OnRep_Role, BlueprintReadOnly, Category = "Prop Hunt")
 	EPlayerRole CurrentRole = EPlayerRole::Unassigned;
@@ -104,7 +101,7 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 	
-	void UpdateCapsuleDimensions(UStaticMesh* Mesh, FVector& Scale);
+	void UpdateCapsuleDimensions(UStaticMesh* Mesh2, FVector& Scale);
 
 public:
 
