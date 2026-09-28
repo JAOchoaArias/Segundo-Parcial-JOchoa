@@ -176,13 +176,8 @@ void APropHuntJOchoaCharacter::DoJumpEnd()
 
 void APropHuntJOchoaCharacter::TryInteract()
 {
-    // CHIVATO 1: Confirmar que la tecla 'E' está bien conectada al C++
-    GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("INTENTO: Tecla E presionada"));
-
     if (CurrentRole != EPlayerRole::Prop)
     {
-       // CHIVATO 2: Avisar si el juego no nos reconoce como Prop
-       GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("ERROR: No tienes el rol de Prop asignado"));
        return;
     }
 
@@ -190,8 +185,7 @@ void APropHuntJOchoaCharacter::TryInteract()
     FRotator CamRot;
     GetActorEyesViewPoint(CamLoc, CamRot);
     const FVector TraceEnd = CamLoc + (CamRot.Vector() * 450.0f);
-    
-    // DIBUJAR EL RAYO SIEMPRE (Afuera del if) para ver hacia dónde apuntamos
+	
     DrawDebugLine(GetWorld(), CamLoc, TraceEnd, FColor::Red, false, 2.0f, 0, 2.0f);
 
     FHitResult HitResult;
@@ -207,7 +201,6 @@ void APropHuntJOchoaCharacter::TryInteract()
           if (HitResult.GetActor())
           {
              FString NombreObjeto = HitResult.GetActor()->GetName();
-             GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Yellow, FString::Printf(TEXT("GOLPE: %s"), *NombreObjeto));
           }
        }
        
@@ -220,14 +213,8 @@ void APropHuntJOchoaCharacter::TryInteract()
              FRotator Rot;
              Interactable->GetPropMeshTransform(Loc, Rot, Scale);
              Server_SetDisguise(Interactable->GetPropMesh(), Scale);
-             GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("¡TRANSFORMACIÓN EXITOSA!"));
           }
        }
-    }
-    else
-    {
-       // CHIVATO 3: Avisar si el rayo no tocó absolutamente nada
-       GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Orange, TEXT("El rayo no chocó con nada sólido"));
     }
 }
 
@@ -299,24 +286,10 @@ void APropHuntJOchoaCharacter::PawnClientRestart()
 			if (APropHuntPlayerController* PC = Cast<APropHuntPlayerController>(GetController()))
 			{
 				PC->Server_RequestRole(GI->SavedRole);
-				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, TEXT("MEMORIA RECUPERADA: Se pidió el rol al servidor."));
 			}
-			else
-			{
-				// Error si el mapa de juego está usando un controlador genérico
-				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FALLO B: El controlador no es PropHuntPlayerController"));
-			}
+			
 		}
-		else
-		{
-			// Error si elegiste el rol en el menú, pero el Lobby nunca lo guardó en la mochila
-			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Orange, TEXT("FALLO C: La mochila del GameInstance dice que no tienes rol."));
-		}
-	}
-	else
-	{
-		// Error crítico: El proyecto no tiene asignado tu GameInstance
-		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FALLO A: El motor no está usando tu PropHuntGameInstance."));
+		
 	}
 }
 
