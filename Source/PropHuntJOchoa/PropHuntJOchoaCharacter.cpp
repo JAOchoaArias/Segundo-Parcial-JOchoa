@@ -16,6 +16,11 @@
 #include "Public/Interfaces/BPI_Interactable.h"
 #include "PropHuntJOchoa.h"
 #include "Net/UnrealNetwork.h"
+#include "DrawDebugHelpers.h"
+#include "Public/GameInstaces/PropHuntGameInstance.h"
+#include "Public/PlayerControllers/PropHuntPlayerController.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameStates/PropHuntGameState.h"
 
 
 APropHuntJOchoaCharacter::APropHuntJOchoaCharacter()
@@ -74,6 +79,9 @@ void APropHuntJOchoaCharacter::SetupPlayerInputComponent(UInputComponent* Player
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &APropHuntJOchoaCharacter::Look);
+		
+		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APropHuntJOchoaCharacter::TryInteract);
+		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &APropHuntJOchoaCharacter::PerformHunterAttack);
 	}
 	else
 	{
@@ -109,6 +117,19 @@ void APropHuntJOchoaCharacter::Look(const FInputActionValue& Value)
 
 void APropHuntJOchoaCharacter::UpdateCapsuleDimensions(UStaticMesh* Mesh2, FVector& Scale)
 {
+	if (!Mesh2)
+	{
+		return;
+	}
+
+	const FBoxSphereBounds Bounds = Mesh2->GetBounds();
+	const float Radius = FMath::Max(Bounds.BoxExtent.X * Scale.X, Bounds.BoxExtent.Y * Scale.Y);
+	const float HalfHeight = FMath::Max(Radius, Bounds.BoxExtent.Z * Scale.Z);
+
+	GetCapsuleComponent()->SetCapsuleSize(
+		FMath::Clamp(Radius, 20.0f, 150.0f),
+		FMath::Clamp(HalfHeight, 30.0f, 250.0f)
+	);
 }
 
 void APropHuntJOchoaCharacter::DoMove(float Right, float Forward)
@@ -155,34 +176,59 @@ void APropHuntJOchoaCharacter::DoJumpEnd()
 
 void APropHuntJOchoaCharacter::TryInteract()
 {
-	if (CurrentRole != EPlayerRole::Prop)
-	{
-		return;
-	}
+    // CHIVATO 1: Confirmar que la tecla 'E' está bien conectada al C++
+    GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("INTENTO: Tecla E presionada"));
 
-	FVector CamLoc;
-	FRotator CamRot;
-	GetActorEyesViewPoint(CamLoc, CamRot);
+    if (CurrentRole != EPlayerRole::Prop)
+    {
+       // CHIVATO 2: Avisar si el juego no nos reconoce como Prop
+       GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("ERROR: No tienes el rol de Prop asignado"));
+       return;
+    }
 
-	const FVector TraceEnd = CamLoc + (CamRot.Vector() * 450.0f);
-	FHitResult HitResult;
-	FCollisionQueryParams Params;
-	Params.AddIgnoredActor(this);
+    FVector CamLoc;
+    FRotator CamRot;
+    GetActorEyesViewPoint(CamLoc, CamRot);
+    const FVector TraceEnd = CamLoc + (CamRot.Vector() * 450.0f);
+    
+    // DIBUJAR EL RAYO SIEMPRE (Afuera del if) para ver hacia dónde apuntamos
+    DrawDebugLine(GetWorld(), CamLoc, TraceEnd, FColor::Red, false, 2.0f, 0, 2.0f);
 
-	if (GetWorld()->LineTraceSingleByChannel(HitResult, CamLoc, TraceEnd, ECC_Visibility, Params))
-	{
-		if (HitResult.GetActor() && HitResult.GetActor()->Implements<UBPI_Interactable>())
-		{
-			IBPI_Interactable* Interactable = Cast<IBPI_Interactable>(HitResult.GetActor());
-			if (Interactable)
-			{
-				FVector Loc, Scale;
-				FRotator Rot;
-				Interactable->GetPropMeshTransform(Loc, Rot, Scale);
-				Server_SetDisguise(Interactable->GetPropMesh(), Scale);
-			}
-		}
-	}
+    FHitResult HitResult;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(this);
+
+    if (GetWorld()->LineTraceSingleByChannel(HitResult, CamLoc, TraceEnd, ECC_Visibility, Params))
+    {
+       if (HitResult.bBlockingHit) 
+       {
+          DrawDebugBox(GetWorld(), HitResult.ImpactPoint, FVector(10.f), FColor::Green, false, 2.0f);
+    
+          if (HitResult.GetActor())
+          {
+             FString NombreObjeto = HitResult.GetActor()->GetName();
+             GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Yellow, FString::Printf(TEXT("GOLPE: %s"), *NombreObjeto));
+          }
+       }
+       
+       if (HitResult.GetActor() && HitResult.GetActor()->Implements<UBPI_Interactable>())
+       {
+          IBPI_Interactable* Interactable = Cast<IBPI_Interactable>(HitResult.GetActor());
+          if (Interactable)
+          {
+             FVector Loc, Scale;
+             FRotator Rot;
+             Interactable->GetPropMeshTransform(Loc, Rot, Scale);
+             Server_SetDisguise(Interactable->GetPropMesh(), Scale);
+             GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("¡TRANSFORMACIÓN EXITOSA!"));
+          }
+       }
+    }
+    else
+    {
+       // CHIVATO 3: Avisar si el rayo no tocó absolutamente nada
+       GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Orange, TEXT("El rayo no chocó con nada sólido"));
+    }
 }
 
 void APropHuntJOchoaCharacter::PerformHunterAttack()
@@ -235,6 +281,45 @@ void APropHuntJOchoaCharacter::Server_ExecuteAttack_Implementation(const FVector
 	TakeDamage(5.0f, FDamageEvent(), GetController(), this);
 }
 
+void APropHuntJOchoaCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+}
+
+void APropHuntJOchoaCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+
+	// Intentamos leer el "GameInstance" (La mochila que guarda los datos entre mapas)
+	if (UPropHuntGameInstance* GI = Cast<UPropHuntGameInstance>(GetGameInstance()))
+	{
+		if (GI->SavedRole != EPlayerRole::Unassigned)
+		{
+			// Intentamos comunicarnos con el servidor a través de tu controlador
+			if (APropHuntPlayerController* PC = Cast<APropHuntPlayerController>(GetController()))
+			{
+				PC->Server_RequestRole(GI->SavedRole);
+				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, TEXT("MEMORIA RECUPERADA: Se pidió el rol al servidor."));
+			}
+			else
+			{
+				// Error si el mapa de juego está usando un controlador genérico
+				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FALLO B: El controlador no es PropHuntPlayerController"));
+			}
+		}
+		else
+		{
+			// Error si elegiste el rol en el menú, pero el Lobby nunca lo guardó en la mochila
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Orange, TEXT("FALLO C: La mochila del GameInstance dice que no tienes rol."));
+		}
+	}
+	else
+	{
+		// Error crítico: El proyecto no tiene asignado tu GameInstance
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FALLO A: El motor no está usando tu PropHuntGameInstance."));
+	}
+}
+
 void APropHuntJOchoaCharacter::OnRep_Role()
 {
 	if (CurrentRole == EPlayerRole::Hunter)
@@ -261,5 +346,19 @@ void APropHuntJOchoaCharacter::OnRep_CurrentDisguiseMesh()
 	{
 		GetMesh()->SetVisibility(true);
 		DisguiseMeshComponent->SetVisibility(false);
+	}
+}
+
+void APropHuntJOchoaCharacter::SetRole(EPlayerRole NewRole)
+{
+	if (HasAuthority()) 
+	{
+		CurrentRole = NewRole;
+		
+		OnRep_Role(); 
+		if (APropHuntGameState* GS = Cast<APropHuntGameState>(GetWorld()->GetGameState()))
+		{
+			GS->RecalculateTeams();
+		}
 	}
 }

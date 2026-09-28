@@ -24,20 +24,7 @@ public class PropHuntJOchoa : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
-			"PropHuntJOchoa",
-			"PropHuntJOchoa/Variant_Platforming",
-			"PropHuntJOchoa/Variant_Platforming/Animation",
-			"PropHuntJOchoa/Variant_Combat",
-			"PropHuntJOchoa/Variant_Combat/AI",
-			"PropHuntJOchoa/Variant_Combat/Animation",
-			"PropHuntJOchoa/Variant_Combat/Gameplay",
-			"PropHuntJOchoa/Variant_Combat/Interfaces",
-			"PropHuntJOchoa/Variant_Combat/UI",
-			"PropHuntJOchoa/Variant_SideScrolling",
-			"PropHuntJOchoa/Variant_SideScrolling/AI",
-			"PropHuntJOchoa/Variant_SideScrolling/Gameplay",
-			"PropHuntJOchoa/Variant_SideScrolling/Interfaces",
-			"PropHuntJOchoa/Variant_SideScrolling/UI"
+			"PropHuntJOchoa"
 		});
 
 		// Uncomment if you are using Slate UI

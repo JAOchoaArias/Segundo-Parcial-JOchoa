@@ -41,6 +41,8 @@ class APropHuntJOchoaCharacter : public ACharacter
 	TObjectPtr<UStaticMeshComponent> DisguiseMeshComponent;
 	
 protected:
+	virtual void BeginPlay() override;
+	virtual void PawnClientRestart() override;
 
 	/** Jump Input Action */
 	UPROPERTY(EditAnywhere, Category="Input")
@@ -63,9 +65,6 @@ protected:
 	
 	UPROPERTY(EditAnywhere, Category="Input")
 	TObjectPtr<UInputAction> AttackAction;
-	
-	UPROPERTY(ReplicatedUsing = OnRep_Role, BlueprintReadOnly, Category = "Prop Hunt")
-	EPlayerRole CurrentRole = EPlayerRole::Unassigned;
 	
 	UPROPERTY(ReplicatedUsing = OnRep_CurrentDisguiseMesh, BlueprintReadOnly, Category = "Prop Hunt")
 	TObjectPtr<UStaticMesh> CurrentDisguiseMesh;
@@ -92,6 +91,11 @@ public:
 	
 	UFUNCTION(Server, Reliable)
 	void Server_ExecuteAttack(const FVector& TraceStart, const FVector& TraceEnd);
+	
+	UPROPERTY(ReplicatedUsing = OnRep_Role, BlueprintReadOnly, Category = "Prop Hunt")
+	EPlayerRole CurrentRole = EPlayerRole::Unassigned;
+	
+	void SetRole(EPlayerRole NewRole);
 	
 protected:
 	
@@ -121,14 +125,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoJumpEnd();
 
-public:
-
 	/** Returns CameraBoom subobject **/
-	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 
 	/** Returns FollowCamera subobject **/
-	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-	FORCEINLINE class UStaticMeshComponent* GetDisguiseMesh() const { return DisguiseMeshComponent; }
+	FORCEINLINE UStaticMeshComponent* GetDisguiseMesh() const { return DisguiseMeshComponent; }
 };
 
