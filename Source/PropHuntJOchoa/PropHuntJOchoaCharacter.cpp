@@ -314,11 +314,16 @@ void APropHuntJOchoaCharacter::OnRep_CurrentDisguiseMesh()
 		GetMesh()->SetVisibility(false);
 		DisguiseMeshComponent->SetStaticMesh(CurrentDisguiseMesh);
 		DisguiseMeshComponent->SetVisibility(true);
+		
+		FVector CurrentScale = DisguiseMeshComponent->GetComponentScale();
+		UpdateCapsuleDimensions(CurrentDisguiseMesh, CurrentScale);
 	}
 	else
 	{
 		GetMesh()->SetVisibility(true);
 		DisguiseMeshComponent->SetVisibility(false);
+		
+		GetCapsuleComponent()->SetCapsuleSize(42.f, 96.0f);
 	}
 }
 
