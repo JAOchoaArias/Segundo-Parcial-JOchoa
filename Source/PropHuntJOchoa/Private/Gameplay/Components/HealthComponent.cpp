@@ -8,6 +8,8 @@ UHealthComponent::UHealthComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 	
 	SetIsReplicatedByDefault(true);
+	
+	CurrentHealth = MaxHealth;
 }
 
 void UHealthComponent::BeginPlay()

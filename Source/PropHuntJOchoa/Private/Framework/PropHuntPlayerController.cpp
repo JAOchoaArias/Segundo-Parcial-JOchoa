@@ -3,9 +3,12 @@
 #include "Characters/PropHuntJOchoaCharacter.h"
 #include "UI/PropHuntMenu.h"
 #include "Blueprint/UserWidget.h"
+#include "Sound/SoundBase.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "UI/PropHuntHUD.h"
+
 
 void APropHuntPlayerController::BeginPlay()
 {
@@ -34,8 +37,10 @@ void APropHuntPlayerController::HandleMatchStateChanged(EMatchState NewState, EP
 {
 	if (!IsLocalController()) return;
 
-	if (NewState == EMatchState::InProgress)
+	if (NewState == EMatchState::Hiding || NewState == EMatchState::InProgress)
 	{
+		bShowMouseCursor = false;
+		SetInputMode(FInputModeGameOnly());
 		if (GameHUDClass && !ActiveHUDWidget)
 		{
 			ActiveHUDWidget = CreateWidget<UUserWidget>(this, GameHUDClass);
@@ -90,21 +95,21 @@ void APropHuntPlayerController::Server_StartMatch_Implementation()
 {
 	if (HasAuthority())
 	{
-		GetWorld()->ServerTravel("/Game/Characters/ThirdPerson/Lvl_ThirdPerson?listen");
+		GetWorld()->ServerTravel("/Game/Maps/Lvl_MainPropHunt?listen");
 	}
 }
 
 void APropHuntPlayerController::Client_NotifyAttackResult_Implementation(bool bHitTarget)
 {
-	if (bHitTarget)
+	USoundBase* FeedbackSound = bHitTarget ? HitConfirmSound : MissPenaltySound;
+	if (FeedbackSound)
 	{
-		if (AttackHitSound) UGameplayStatics::PlaySound2D(this, AttackHitSound);
-		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Green, TEXT("¡IMPACTO! (-25 HP al Prop)"));
+		UGameplayStatics::PlaySound2D(this, FeedbackSound);
 	}
-	else
+	
+	if (UPropHuntHUDWidget* HUD = Cast<UPropHuntHUDWidget>(ActiveHUDWidget))
 	{
-		if (AttackMissSound) UGameplayStatics::PlaySound2D(this, AttackMissSound);
-		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Orange, TEXT("FALLO (-5 HP de penalización)"));
+		HUD->TriggerCrosshairFeedback(bHitTarget);
 	}
 }
 

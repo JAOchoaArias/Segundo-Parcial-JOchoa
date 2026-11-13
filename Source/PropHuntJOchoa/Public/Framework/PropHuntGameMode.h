@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
-#include "Characters/PropHuntJOchoaCharacter.h"
+#include "Core/PropHuntTypes.h"
 #include "PropHuntGameMode.generated.h"
 
 UCLASS()
@@ -18,6 +18,10 @@ public:
 	void OnPlayerEliminated(AController* VictimController, AController* KillerController);
 
 protected:
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Prop Hunt|Rules")
+	int32 HidingDurationSeconds = 30;
+	
 	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|Rules")
 	int32 MatchDurationSeconds = 180;
 

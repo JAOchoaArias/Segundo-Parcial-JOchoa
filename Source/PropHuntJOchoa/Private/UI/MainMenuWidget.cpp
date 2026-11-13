@@ -61,7 +61,7 @@ void UMainMenuWidget::OnGoToMultiplayerClicked()
 
 void UMainMenuWidget::OnHostLANClicked()
 {
-    GetWorld()->ServerTravel("/Game/Maps/LobbyMap?listen"); 
+    GetWorld()->ServerTravel("/Game/Maps/Lvl_LobbyMap?listen"); 
 }
 
 void UMainMenuWidget::OnJoinLANClicked()

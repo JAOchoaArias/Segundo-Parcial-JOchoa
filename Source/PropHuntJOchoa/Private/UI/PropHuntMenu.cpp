@@ -20,10 +20,15 @@ void UPropHuntMenu::NativeConstruct()
 {
     Super::NativeConstruct();
 	
+    if (UPropHuntGameInstance* GI = Cast<UPropHuntGameInstance>(GetGameInstance()))
+    {
+        GI->SavedRole = EPlayerRole::Unassigned;
+    }
+
     if (Btn_PlayHunter) Btn_PlayHunter->OnClicked.AddDynamic(this, &UPropHuntMenu::OnHunterClicked);
     if (Btn_PlayProp) Btn_PlayProp->OnClicked.AddDynamic(this, &UPropHuntMenu::OnPropClicked);
     if (Btn_StartGame) Btn_StartGame->OnClicked.AddDynamic(this, &UPropHuntMenu::OnStartGameClicked);
-	
+
     if (APlayerController* PC = GetOwningPlayer())
     {
         if (!PC->HasAuthority())

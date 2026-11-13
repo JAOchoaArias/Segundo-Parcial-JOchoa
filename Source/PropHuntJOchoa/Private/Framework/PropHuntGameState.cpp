@@ -30,8 +30,11 @@ void APropHuntGameState::RecalculateTeams()
 	{
 		if (APropHuntPlayerState* PH_PS = Cast<APropHuntPlayerState>(PS))
 		{
-			if (PH_PS->PlayerRole == EPlayerRole::Hunter) TempHunters++;
-			else if (PH_PS->PlayerRole == EPlayerRole::Prop) TempProps++;
+			if (PH_PS->bIsAlive)
+			{
+				if (PH_PS->PlayerRole == EPlayerRole::Hunter) TempHunters++;
+				else if (PH_PS->PlayerRole == EPlayerRole::Prop) TempProps++;
+			}
 		}
 	}
 
@@ -65,6 +68,7 @@ void APropHuntGameState::OnRep_TeamCounts()
 	{
 		PC->UpdateLobbyUI(HuntersCount, PropsCount);
 	}
+	OnTeamCountsChanged.Broadcast(HuntersCount, PropsCount);
 }
 
 void APropHuntGameState::OnRep_RemainingTime()

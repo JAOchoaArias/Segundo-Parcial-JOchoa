@@ -25,6 +25,8 @@
 #include "Public/Framework/PropHuntGameState.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
 #include "Kismet/GameplayStatics.h"
 
 
@@ -91,6 +93,25 @@ void APropHuntJOchoaCharacter::SetupPlayerInputComponent(UInputComponent* Player
 		
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APropHuntJOchoaCharacter::TryInteract);
 		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &APropHuntJOchoaCharacter::PerformHunterAttack);
+		
+		//Lock camera from prop
+		if (LockPropAction)
+		{
+			EnhancedInputComponent->BindAction(LockPropAction, ETriggerEvent::Started, this, &APropHuntJOchoaCharacter::TogglePropLock);
+		}
+		
+		//rotate prop in lock mode
+		if (RotatePropAction)
+		{
+			EnhancedInputComponent->BindAction(RotatePropAction, ETriggerEvent::Triggered, this, &APropHuntJOchoaCharacter::RotateProp);
+			EnhancedInputComponent->BindAction(RotatePropAction, ETriggerEvent::Completed, this, &APropHuntJOchoaCharacter::OnPropAdjustCompleted);
+		}
+		
+		//Move prop in lock mode
+		if (MoveAction)
+		{
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &APropHuntJOchoaCharacter::OnPropAdjustCompleted);
+		}
 	}
 	else
 	{
@@ -104,6 +125,10 @@ void APropHuntJOchoaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	
 	DOREPLIFETIME(APropHuntJOchoaCharacter, CurrentRole);
 	DOREPLIFETIME(APropHuntJOchoaCharacter, CurrentDisguiseMesh);
+	DOREPLIFETIME(APropHuntJOchoaCharacter, CurrentDisguiseScale);
+	DOREPLIFETIME(APropHuntJOchoaCharacter, bIsPropLocked);
+	DOREPLIFETIME(APropHuntJOchoaCharacter, LockedMeshOffset);
+	DOREPLIFETIME(APropHuntJOchoaCharacter, LockedMeshYaw);
 }
 
 void APropHuntJOchoaCharacter::Move(const FInputActionValue& Value)
@@ -126,36 +151,68 @@ void APropHuntJOchoaCharacter::Look(const FInputActionValue& Value)
 
 void APropHuntJOchoaCharacter::UpdateCapsuleDimensions(UStaticMesh* Mesh2, FVector& Scale)
 {
-	if (!Mesh2)
+	if (!Mesh2 || !GetCapsuleComponent() || !DisguiseMeshComponent)
 	{
 		return;
 	}
 
-	const FBoxSphereBounds Bounds = Mesh2->GetBounds();
-	const float Radius = FMath::Max(Bounds.BoxExtent.X * Scale.X, Bounds.BoxExtent.Y * Scale.Y);
-	const float HalfHeight = FMath::Max(Radius, Bounds.BoxExtent.Z * Scale.Z);
+	const float OldHalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	
+	const FBox LocalBox = Mesh2->GetBoundingBox();
+	const FVector ScaledSize = LocalBox.GetSize() * Scale;
+	
+	const float NewRadius = FMath::Clamp(FMath::Max(ScaledSize.X, ScaledSize.Y) * 0.5f, 15.0f, 100.0f);
+	const float NewHalfHeight = FMath::Max(ScaledSize.Z * 0.5f, NewRadius);
 
-	GetCapsuleComponent()->SetCapsuleSize(
-		FMath::Clamp(Radius, 20.0f, 150.0f),
-		FMath::Clamp(HalfHeight, 30.0f, 250.0f)
-	);
+	GetCapsuleComponent()->SetCapsuleSize(NewRadius, NewHalfHeight);
+	
+	const float MeshBottomOffset = LocalBox.Min.Z * Scale.Z;
+	const float TargetRelativeZ = -NewHalfHeight - MeshBottomOffset;
+	BaseDisguiseZ = TargetRelativeZ;
+	ApplyPropVisualTransform();
+	if (HasAuthority())
+	{
+		const float HeightDiff = OldHalfHeight - NewHalfHeight;
+		if (HeightDiff > 0.0f)
+		{
+			AddActorWorldOffset(FVector(0.0f, 0.0f, -HeightDiff), true);
+		}
+	}
 }
 
 void APropHuntJOchoaCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr)
+	if (CurrentRole == EPlayerRole::Prop && bIsPropLocked)
 	{
-		// find out which way is forward
-		const FRotator Rotation = GetController()->GetControlRotation();
+		if (Controller && DisguiseMeshComponent)
+		{
+			const FRotator YawRotation(0.0f, Controller->GetControlRotation().Yaw, 0.0f);
+			const FVector ForwardDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+			const FVector RightDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+			const FVector WorldDelta = (ForwardDir * Forward + RightDir * Right) * 80.0f * GetWorld()->GetDeltaSeconds();
+			const FVector LocalDelta = GetActorTransform().InverseTransformVectorNoScale(WorldDelta);
+			
+			LockedMeshOffset.X = FMath::Clamp(LockedMeshOffset.X + LocalDelta.X, -45.0f, 45.0f);
+			LockedMeshOffset.Y = FMath::Clamp(LockedMeshOffset.Y + LocalDelta.Y, -45.0f, 45.0f);
+
+			ApplyPropVisualTransform();
+			
+			const float Now = GetWorld()->GetTimeSeconds();
+			if (Now - LastPropSyncTime >= 0.1f)
+			{
+				LastPropSyncTime = Now;
+				Server_UpdatePropTransform(LockedMeshOffset, LockedMeshYaw);
+			}
+		}
+		return;
+	}
+	if (Controller != nullptr)
+	{
+		const FRotator Rotation = Controller->GetControlRotation();
 		const FRotator YawRotation(0, Rotation.Yaw, 0);
-
-		// get forward vector
 		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-
-		// get right vector 
 		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		// add movement 
 		AddMovementInput(ForwardDirection, Forward);
 		AddMovementInput(RightDirection, Right);
 	}
@@ -173,6 +230,10 @@ void APropHuntJOchoaCharacter::DoLook(float Yaw, float Pitch)
 
 void APropHuntJOchoaCharacter::DoJumpStart()
 {
+	if (CurrentRole == EPlayerRole::Prop && bIsPropLocked)
+	{
+		return;
+	}
 	// signal the character to jump
 	Jump();
 }
@@ -229,17 +290,33 @@ void APropHuntJOchoaCharacter::TryInteract()
 			
 void APropHuntJOchoaCharacter::PerformHunterAttack()
 {
-	if (CurrentRole != EPlayerRole::Hunter)
+	if (CurrentRole != EPlayerRole::Hunter || !FollowCamera)
 	{
 		return;
 	}
 
-	FVector CamLoc;
-	FRotator CamRot;
-	GetActorEyesViewPoint(CamLoc, CamRot);
+	APropHuntGameState* GS = GetWorld() ? GetWorld()->GetGameState<APropHuntGameState>() : nullptr;
+	if (!GS || GS->CurrentMatchState != EMatchState::InProgress)
+	{
+		return;
+	}
 
-	const FVector TraceEnd = CamLoc + (CamRot.Vector() * 500.0f);
-	Server_ExecuteAttack(CamLoc, TraceEnd);
+	const float AttackRange = 1500.0f;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	
+	const FVector CamStart = FollowCamera->GetComponentLocation();
+	const FVector CamEnd = CamStart + (FollowCamera->GetForwardVector() * AttackRange);
+
+	FHitResult CamHit;
+	const bool bCamHit = GetWorld()->LineTraceSingleByChannel(CamHit, CamStart, CamEnd, ECC_Visibility, QueryParams);
+	const FVector AimTarget = bCamHit ? CamHit.ImpactPoint : CamEnd;
+	
+	const FVector CharStart = GetActorLocation() + FVector(0.0f, 0.0f, 40.0f);
+	const FVector ShotDirection = (AimTarget - CharStart).GetSafeNormal();
+	const FVector CharEnd = CharStart + (ShotDirection * AttackRange);
+
+	Server_ExecuteAttack(CharStart, CharEnd);
 }
 
 void APropHuntJOchoaCharacter::Server_SetDisguise_Implementation(UStaticMesh* NewMesh, FVector NewScale)
@@ -250,8 +327,10 @@ void APropHuntJOchoaCharacter::Server_SetDisguise_Implementation(UStaticMesh* Ne
 	}
 
 	CurrentDisguiseMesh = NewMesh;
-	DisguiseMeshComponent->SetWorldScale3D(NewScale);
-	UpdateCapsuleDimensions(NewMesh, NewScale);
+	CurrentDisguiseScale = NewScale;
+	CurrentDisguiseMesh = NewMesh;
+	CurrentDisguiseScale = NewScale;
+	LockedMeshOffset = FVector::ZeroVector;
 	
 	OnRep_CurrentDisguiseMesh();
 	
@@ -260,43 +339,56 @@ void APropHuntJOchoaCharacter::Server_SetDisguise_Implementation(UStaticMesh* Ne
 
 void APropHuntJOchoaCharacter::Server_ExecuteAttack_Implementation(const FVector& TraceStart, const FVector& TraceEnd)
 {
-	FHitResult HitResult;
-	FCollisionQueryParams Params;
-	Params.AddIgnoredActor(this);
-
-	const bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, Params);
-	APropHuntPlayerController* AttackerPC = Cast<APropHuntPlayerController>(GetController());
-
-	if (bHit && HitResult.GetActor())
+	APropHuntGameState* GS = GetWorld() ? GetWorld()->GetGameState<APropHuntGameState>() : nullptr;
+	if (!GS || GS->CurrentMatchState != EMatchState::InProgress)
 	{
-		APropHuntJOchoaCharacter* TargetCharacter = Cast<APropHuntJOchoaCharacter>(HitResult.GetActor());
-		if (TargetCharacter)
+		return;
+	}
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	FHitResult HitResult;
+	const bool bHitSomething = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+	const FVector ActualEnd = bHitSomething ? HitResult.ImpactPoint : TraceEnd;
+	Multicast_PlayAttackEffects(TraceStart, ActualEnd);
+	bool bHitProp = false;
+	if (bHitSomething)
+	{
+		if (APropHuntJOchoaCharacter* HitChar = Cast<APropHuntJOchoaCharacter>(HitResult.GetActor()))
 		{
-			// Chivato en servidor: nos dice qué rol tiene realmente la víctima en la red
-			FString RoleDebug = UEnum::GetValueAsString(TargetCharacter->CurrentRole);
-			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan, TEXT("Golpeado con Rol en Servidor: ") + RoleDebug);
-
-			if (TargetCharacter->CurrentRole == EPlayerRole::Prop)
+			if (HitChar->CurrentRole == EPlayerRole::Prop)
 			{
-				TargetCharacter->TakeDamage(25.0f, FDamageEvent(), GetController(), this);
-				if (AttackerPC) AttackerPC->Client_NotifyAttackResult(true);
-				return;
+				bHitProp = true;
+				UGameplayStatics::ApplyDamage(HitChar, 25.0f, GetController(), this, nullptr);
 			}
 		}
 	}
-
-	TakeDamage(5.0f, FDamageEvent(), GetController(), this);
-	if (AttackerPC) AttackerPC->Client_NotifyAttackResult(false);
+	if (!bHitProp)
+	{
+		UGameplayStatics::ApplyDamage(this, 5.0f, GetController(), this, nullptr);
+	}
+	if (APropHuntPlayerController* PC = Cast<APropHuntPlayerController>(GetController()))
+	{
+		PC->Client_NotifyAttackResult(bHitProp);
+	}
 }
 
 void APropHuntJOchoaCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	
 	if (HealthComponent)
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &APropHuntJOchoaCharacter::HandleCharacterDeath);
 	}
+	
+	if (APropHuntGameState* GS = GetWorld()->GetGameState<APropHuntGameState>())
+	{
+		GS->OnMatchStateChanged.AddDynamic(this, &APropHuntJOchoaCharacter::HandleMatchPhaseChanged);
+	}
+
+	UpdateHidingRestrictions();
 }
 
 void APropHuntJOchoaCharacter::PawnClientRestart()
@@ -320,35 +412,38 @@ void APropHuntJOchoaCharacter::PawnClientRestart()
 
 void APropHuntJOchoaCharacter::OnRep_Role()
 {
-	if (CurrentRole == EPlayerRole::Hunter)
+	const bool bIsHunter = (CurrentRole == EPlayerRole::Hunter);
+	const bool bHasDisguise = (CurrentDisguiseMesh != nullptr);
+
+	if (GetMesh())
 	{
-		DisguiseMeshComponent->SetVisibility(false);
-		GetMesh()->SetVisibility(true);
+		GetMesh()->SetVisibility(bIsHunter || !bHasDisguise);
 	}
-	else if (CurrentRole == EPlayerRole::Prop && CurrentDisguiseMesh)
+
+	if (DisguiseMeshComponent)
 	{
-		GetMesh()->SetVisibility(false);
-		DisguiseMeshComponent->SetVisibility(true);
+		DisguiseMeshComponent->SetVisibility(!bIsHunter);
 	}
+	
+	if (CameraBoom)
+	{
+		CameraBoom->SocketOffset = bIsHunter ? FVector(0.0f, 55.0f, 20.0f) : FVector::ZeroVector;
+	}
+
+	UpdateHidingRestrictions();
 }
 
 void APropHuntJOchoaCharacter::OnRep_CurrentDisguiseMesh()
 {
-	if (CurrentDisguiseMesh)
+	if (CurrentDisguiseMesh && DisguiseMeshComponent)
 	{
 		GetMesh()->SetVisibility(false);
+
 		DisguiseMeshComponent->SetStaticMesh(CurrentDisguiseMesh);
+		DisguiseMeshComponent->SetWorldScale3D(CurrentDisguiseScale);
 		DisguiseMeshComponent->SetVisibility(true);
 		
-		FVector CurrentScale = DisguiseMeshComponent->GetComponentScale();
-		UpdateCapsuleDimensions(CurrentDisguiseMesh, CurrentScale);
-	}
-	else
-	{
-		GetMesh()->SetVisibility(true);
-		DisguiseMeshComponent->SetVisibility(false);
-		
-		GetCapsuleComponent()->SetCapsuleSize(42.f, 96.0f);
+		UpdateCapsuleDimensions(CurrentDisguiseMesh, CurrentDisguiseScale);
 	}
 }
 
@@ -388,11 +483,6 @@ void APropHuntJOchoaCharacter::HandleCharacterDeath(AActor* DeadActor, AControll
 			GM->OnPlayerEliminated(GetController(), KillerController);
 		}
 	}
-
-	if (IsLocallyControlled())
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("¡HAS SIDO ELIMINADO!"));
-	}
 }
 
 void APropHuntJOchoaCharacter::Multicast_PlayTransformEffects_Implementation(FVector EffectLocation)
@@ -405,4 +495,168 @@ void APropHuntJOchoaCharacter::Multicast_PlayTransformEffects_Implementation(FVe
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, TransformSound, EffectLocation);
 	}
+}
+
+void APropHuntJOchoaCharacter::HandleMatchPhaseChanged(EMatchState NewState, EPlayerRole Winner)
+{
+	UpdateHidingRestrictions();
+}
+
+void APropHuntJOchoaCharacter::UpdateHidingRestrictions()
+{
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	APropHuntGameState* GS = GetWorld() ? GetWorld()->GetGameState<APropHuntGameState>() : nullptr;
+	const bool bIsHidingPhase = (GS && GS->CurrentMatchState == EMatchState::Hiding);
+	
+	const bool bShouldFreeze = bIsHidingPhase && (CurrentRole != EPlayerRole::Prop);
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+
+	if (bShouldFreeze)
+	{
+		GetCharacterMovement()->DisableMovement();
+
+		if (IsLocallyControlled() && PC)
+		{
+			PC->SetIgnoreMoveInput(true);
+			PC->SetIgnoreLookInput(true);
+			
+			if (PC->PlayerCameraManager)
+			{
+				PC->PlayerCameraManager->StartCameraFade(1.0f, 1.0f, 0.01f, FLinearColor::Black, false, true);
+			}
+		}
+	}
+	else
+	{
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+
+		if (IsLocallyControlled() && PC)
+		{
+			PC->ResetIgnoreMoveInput();
+			PC->ResetIgnoreLookInput();
+			
+			if (PC->PlayerCameraManager)
+			{
+				PC->PlayerCameraManager->StartCameraFade(1.0f, 0.0f, 0.5f, FLinearColor::Black, false, false);
+			}
+		}
+	}
+}
+
+void APropHuntJOchoaCharacter::Multicast_PlayAttackEffects_Implementation(FVector StartLocation, FVector EndLocation)
+{
+	if (HunterAttackSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HunterAttackSound, StartLocation);
+	}
+
+	if (HunterBeamVFX)
+	{
+		if (UNiagaraComponent* BeamComp = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), HunterBeamVFX, StartLocation))
+		{
+			BeamComp->SetVectorParameter(FName("BeamStart"), StartLocation);
+			BeamComp->SetVectorParameter(FName("BeamEnd"), EndLocation);
+		}
+	}
+}
+
+void APropHuntJOchoaCharacter::TogglePropLock()
+{
+	if (CurrentRole != EPlayerRole::Prop)
+	{
+		return;
+	}
+	bIsPropLocked = !bIsPropLocked;
+	if (bIsPropLocked)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+	}
+	else
+	{
+		LockedMeshOffset = FVector::ZeroVector;
+		LockedMeshYaw = 0.0f;
+	}
+	ApplyPropVisualTransform();
+
+	if (PropLockSound)
+	{
+		UGameplayStatics::PlaySound2D(this, PropLockSound);
+	}
+	Server_SetPropLockState(bIsPropLocked, LockedMeshOffset, LockedMeshYaw);
+}
+
+void APropHuntJOchoaCharacter::RotateProp(const FInputActionValue& Value)
+{
+	if (CurrentRole != EPlayerRole::Prop || !bIsPropLocked)
+	{
+		return;
+	}
+	const float AxisValue = Value.Get<float>();
+	if (FMath::IsNearlyZero(AxisValue))
+	{
+		return;
+	}
+	LockedMeshYaw = FMath::Fmod(LockedMeshYaw + (AxisValue * 120.0f * GetWorld()->GetDeltaSeconds()), 360.0f);
+	ApplyPropVisualTransform();
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (Now - LastPropSyncTime >= 0.1f)
+	{
+		LastPropSyncTime = Now;
+		Server_UpdatePropTransform(LockedMeshOffset, LockedMeshYaw);
+	}
+}
+
+void APropHuntJOchoaCharacter::OnPropAdjustCompleted()
+{
+	if (CurrentRole == EPlayerRole::Prop && bIsPropLocked)
+	{
+		Server_SetPropLockState(bIsPropLocked, LockedMeshOffset, LockedMeshYaw);
+	}
+}
+
+void APropHuntJOchoaCharacter::ApplyPropVisualTransform()
+{
+	if (DisguiseMeshComponent)
+	{
+		DisguiseMeshComponent->SetRelativeLocation(FVector(LockedMeshOffset.X, LockedMeshOffset.Y, BaseDisguiseZ));
+		DisguiseMeshComponent->SetRelativeRotation(FRotator(0.0f, LockedMeshYaw, 0.0f));
+	}
+}
+
+void APropHuntJOchoaCharacter::OnRep_PropLockTransform()
+{
+	ApplyPropVisualTransform();
+}
+
+void APropHuntJOchoaCharacter::Server_SetPropLockState_Implementation(bool bNewLocked, FVector NewOffset, float NewYaw)
+{
+	bIsPropLocked = bNewLocked;
+	LockedMeshOffset.X = FMath::Clamp(NewOffset.X, -45.0f, 45.0f);
+	LockedMeshOffset.Y = FMath::Clamp(NewOffset.Y, -45.0f, 45.0f);
+	LockedMeshYaw = NewYaw;
+
+	if (bIsPropLocked && GetCharacterMovement())
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+	}
+	ApplyPropVisualTransform();
+}
+
+void APropHuntJOchoaCharacter::Server_UpdatePropTransform_Implementation(FVector NewOffset, float NewYaw)
+{
+	if (!bIsPropLocked)
+	{
+		return;
+	}
+	LockedMeshOffset.X = FMath::Clamp(NewOffset.X, -45.0f, 45.0f);
+	LockedMeshOffset.Y = FMath::Clamp(NewOffset.Y, -45.0f, 45.0f);
+	LockedMeshYaw = NewYaw;
+
+	ApplyPropVisualTransform();
 }

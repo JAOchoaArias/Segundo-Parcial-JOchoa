@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
-#include "Characters/PropHuntJOchoaCharacter.h"
+#include "Core/PropHuntTypes.h"
 #include "PropHuntPlayerState.generated.h"
 
 UCLASS()

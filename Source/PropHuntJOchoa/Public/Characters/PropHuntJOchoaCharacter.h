@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "Core/PropHuntTypes.h"
 #include "PropHuntJOchoaCharacter.generated.h"
 
 class USpringArmComponent;
@@ -18,14 +19,6 @@ class UNiagaraSystem;
 class USoundBase;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
-
-UENUM(BlueprintType)
-enum class EPlayerRole : uint8
-{
-	Unassigned UMETA(DisplayName = "Unassigned"),
-	Hunter UMETA(DisplayName = "Hunter"),
-	Prop UMETA(DisplayName = "Prop")
-};
 
 UCLASS(abstract)
 class APropHuntJOchoaCharacter : public ACharacter
@@ -69,8 +62,29 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	TObjectPtr<UInputAction> AttackAction;
 	
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> LockPropAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> RotatePropAction;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|Audio")
+	TObjectPtr<USoundBase> PropLockSound;
+	
+	UPROPERTY(ReplicatedUsing = OnRep_PropLockTransform, BlueprintReadOnly, Category = "Prop Hunt")
+	bool bIsPropLocked = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_PropLockTransform, BlueprintReadOnly, Category = "Prop Hunt")
+	FVector LockedMeshOffset = FVector::ZeroVector;
+	
+	UPROPERTY(ReplicatedUsing = OnRep_PropLockTransform, BlueprintReadOnly, Category = "Prop Hunt")
+	float LockedMeshYaw = 0.0f;
+	
 	UPROPERTY(ReplicatedUsing = OnRep_CurrentDisguiseMesh, BlueprintReadOnly, Category = "Prop Hunt")
 	TObjectPtr<UStaticMesh> CurrentDisguiseMesh;
+	
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Prop Hunt")
+	FVector CurrentDisguiseScale = FVector::OneVector;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UHealthComponent> HealthComponent;
@@ -80,6 +94,22 @@ protected:
 	
 	UFUNCTION()
 	void OnRep_CurrentDisguiseMesh();
+	
+	UFUNCTION()
+	void HandleMatchPhaseChanged(EMatchState NewState, EPlayerRole Winner);
+
+	void UpdateHidingRestrictions();
+	
+	UFUNCTION()
+	void OnRep_PropLockTransform();
+
+	void TogglePropLock();
+	void RotateProp(const FInputActionValue& Value);
+	void OnPropAdjustCompleted();
+	void ApplyPropVisualTransform();
+	
+	float BaseDisguiseZ = 0.0f;
+	float LastPropSyncTime = 0.0f;
 	
 public:
 
@@ -101,6 +131,12 @@ public:
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_PlayTransformEffects(FVector EffectLocation);
 	
+	UFUNCTION(Server, Reliable)
+	void Server_SetPropLockState(bool bNewLocked, FVector NewOffset, float NewYaw);
+
+	UFUNCTION(Server, Unreliable)
+	void Server_UpdatePropTransform(FVector NewOffset, float NewYaw);
+	
 	UPROPERTY(ReplicatedUsing = OnRep_Role, BlueprintReadOnly, Category = "Prop Hunt")
 	EPlayerRole CurrentRole = EPlayerRole::Unassigned;
 	
@@ -121,9 +157,15 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|VFX")
 	TObjectPtr<UNiagaraSystem> TransformVFX;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|VFX")
+	TObjectPtr<UNiagaraSystem> HunterBeamVFX;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|Audio")
 	TObjectPtr<USoundBase> TransformSound;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Prop Hunt|Audio")
+	TObjectPtr<USoundBase> HunterAttackSound;
 
 public:
 
@@ -142,6 +184,9 @@ public:
 	/** Handles jump pressed inputs from either controls or UI interfaces */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoJumpEnd();
+	
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayAttackEffects(FVector StartLocation, FVector EndLocation);
 
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }

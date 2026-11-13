@@ -5,16 +5,9 @@
 #include "Characters/PropHuntJOchoaCharacter.h"
 #include "PropHuntGameState.generated.h"
 
-UENUM(BlueprintType)
-enum class EMatchState : uint8
-{
-	Lobby UMETA(DisplayName = "Lobby"),
-	InProgress UMETA(DisplayName = "Jugando"),
-	MatchEnded UMETA(DisplayName = "Fin")
-};
-
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRemainingTimeChanged, int32, NewTime);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMatchStateChanged, EMatchState, NewState, EPlayerRole, Winner);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTeamCountsChanged, int32, Hunters, int32, Props);
 
 UCLASS()
 class PROPHUNTJOCHOA_API APropHuntGameState : public AGameStateBase
@@ -51,6 +44,9 @@ public:
 	
 	void SetRemainingTime(int32 NewTime);
 	void SetMatchState(EMatchState NewState, EPlayerRole Winner = EPlayerRole::Unassigned);
+	
+	UPROPERTY(BlueprintAssignable, Category = "Prop Hunt|Events")
+	FOnTeamCountsChanged OnTeamCountsChanged;
 
 protected:
 	UFUNCTION()

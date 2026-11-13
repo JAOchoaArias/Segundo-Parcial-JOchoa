@@ -23,8 +23,16 @@ void APropHuntGameMode::StartMatchRound()
 {
 	if (APropHuntGameState* GS = GetGameState<APropHuntGameState>())
 	{
-		GS->SetRemainingTime(MatchDurationSeconds);
-		GS->SetMatchState(EMatchState::InProgress);
+		if (HidingDurationSeconds > 0)
+		{
+			GS->SetRemainingTime(HidingDurationSeconds);
+			GS->SetMatchState(EMatchState::Hiding);
+		}
+		else
+		{
+			GS->SetRemainingTime(MatchDurationSeconds);
+			GS->SetMatchState(EMatchState::InProgress);
+		}
 	}
 
 	GetWorldTimerManager().SetTimer(RoundTimerHandle, this, &APropHuntGameMode::OnRoundTimerTick, 1.0f, true);
@@ -33,17 +41,28 @@ void APropHuntGameMode::StartMatchRound()
 void APropHuntGameMode::OnRoundTimerTick()
 {
 	APropHuntGameState* GS = GetGameState<APropHuntGameState>();
-	if (!GS || GS->CurrentMatchState != EMatchState::InProgress)
-	{
-		return;
-	}
+	if (!GS) return;
 
-	const int32 NewTime = GS->RemainingTime - 1;
-	GS->SetRemainingTime(NewTime);
-	
-	if (NewTime <= 0)
+	if (GS->CurrentMatchState == EMatchState::Hiding)
 	{
-		EndMatchWithWinner(EPlayerRole::Prop);
+		const int32 NewTime = GS->RemainingTime - 1;
+		GS->SetRemainingTime(NewTime);
+		
+		if (NewTime <= 0)
+		{
+			GS->SetRemainingTime(MatchDurationSeconds);
+			GS->SetMatchState(EMatchState::InProgress);
+		}
+	}
+	else if (GS->CurrentMatchState == EMatchState::InProgress)
+	{
+		const int32 NewTime = GS->RemainingTime - 1;
+		GS->SetRemainingTime(NewTime);
+
+		if (NewTime <= 0)
+		{
+			EndMatchWithWinner(EPlayerRole::Prop);
+		}
 	}
 }
 
@@ -55,6 +74,11 @@ void APropHuntGameMode::OnPlayerEliminated(AController* VictimController, AContr
 	{
 		VictimPS->SetAliveStatus(false);
 		VictimPS->AddDeath();
+	}
+	
+	if (APropHuntGameState* GS = GetGameState<APropHuntGameState>())
+	{
+		GS->RecalculateTeams();
 	}
 	
 	if (KillerController && KillerController != VictimController)
@@ -71,7 +95,7 @@ void APropHuntGameMode::OnPlayerEliminated(AController* VictimController, AContr
 void APropHuntGameMode::CheckWinConditions()
 {
 	APropHuntGameState* GS = GetGameState<APropHuntGameState>();
-	if (!GS || GS->CurrentMatchState != EMatchState::InProgress)
+	if (!GS || (GS->CurrentMatchState != EMatchState::InProgress && GS->CurrentMatchState != EMatchState::Hiding))
 	{
 		return;
 	}
@@ -90,7 +114,7 @@ void APropHuntGameMode::CheckWinConditions()
 			}
 		}
 	}
-	
+
 	if (GS->PlayerArray.Num() > 1)
 	{
 		if (AliveProps == 0)
@@ -113,9 +137,4 @@ void APropHuntGameMode::EndMatchWithWinner(EPlayerRole WinningRole)
 		GS->SetMatchState(EMatchState::MatchEnded, WinningRole);
 	}
 	
-	FString WinnerText = (WinningRole == EPlayerRole::Hunter) ? TEXT("¡GANAN LOS CAZADORES!") : TEXT("¡GANAN LOS PROPS!");
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, WinnerText);
-	}
 }
