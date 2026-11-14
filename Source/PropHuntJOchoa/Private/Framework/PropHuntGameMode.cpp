@@ -115,16 +115,13 @@ void APropHuntGameMode::CheckWinConditions()
 		}
 	}
 
-	if (GS->PlayerArray.Num() > 1)
+	if (AliveHunters == 0)
 	{
-		if (AliveProps == 0)
-		{
-			EndMatchWithWinner(EPlayerRole::Hunter);
-		}
-		else if (AliveHunters == 0)
-		{
-			EndMatchWithWinner(EPlayerRole::Prop);
-		}
+		EndMatchWithWinner(EPlayerRole::Prop);
+	}
+	else if (AliveProps == 0 && GS->PlayerArray.Num() > 1)
+	{
+		EndMatchWithWinner(EPlayerRole::Hunter);
 	}
 }
 

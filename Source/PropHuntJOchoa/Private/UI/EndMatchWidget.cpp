@@ -45,10 +45,42 @@ void UEndMatchWidget::NativeConstruct()
 		LocalRole = MyChar->CurrentRole;
 	}
 	const bool bLocalWon = (LocalRole != EPlayerRole::Unassigned && LocalRole == Winner);
+	const FText ResultText = FText::FromString(bLocalWon ? TEXT("¡VICTORIA!") : TEXT("DERROTA"));
+	const FLinearColor ResultColor = bLocalWon ? FLinearColor::Green : FLinearColor::Red;
+	if (Txt_ResultTitle)
+	{
+		Txt_ResultTitle->SetText(ResultText);
+		Txt_ResultTitle->SetColorAndOpacity(ResultColor);
+	}
 	if (Txt_PersonalResult)
 	{
-		Txt_PersonalResult->SetText(FText::FromString(bLocalWon ? TEXT("¡VICTORIA!") : TEXT("DERROTA")));
-		Txt_PersonalResult->SetColorAndOpacity(bLocalWon ? FLinearColor::Green : FLinearColor::Red);
+		Txt_PersonalResult->SetText(ResultText);
+		Txt_PersonalResult->SetColorAndOpacity(ResultColor);
+	}
+	if (Txt_Scoreboard)
+	{
+		FString ScoreboardText = TEXT("TABLA DE JUGADORES:\n\n");
+
+		for (APlayerState* PS : GS->PlayerArray)
+		{
+			if (APropHuntPlayerState* PH_PS = Cast<APropHuntPlayerState>(PS))
+			{
+				const FString RoleStr = (PH_PS->PlayerRole == EPlayerRole::Hunter) ? TEXT("Cazador")
+				                      : (PH_PS->PlayerRole == EPlayerRole::Prop)   ? TEXT("Prop")
+				                                                                   : TEXT("Sin rol");
+				const FString StatusStr = PH_PS->bIsAlive ? TEXT("Vivo") : TEXT("Eliminado");
+				const int32 Points = FMath::RoundToInt(PH_PS->GetScore());
+
+				ScoreboardText += FString::Printf(
+					TEXT("%s  |  %s  |  %s  |  Puntos: %d\n"),
+					*PH_PS->GetPlayerName(),
+					*RoleStr,
+					*StatusStr,
+					Points
+				);
+			}
+		}
+		Txt_Scoreboard->SetText(FText::FromString(ScoreboardText));
 	}
 	if (USoundBase* ResultSound = bLocalWon ? VictorySound : DefeatSound)
 	{
