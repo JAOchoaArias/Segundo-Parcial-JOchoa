@@ -1,5 +1,5 @@
 # Trabajo Final PEV 2 - PropHuntJOchoa
-**Alumno:** Jesus Ochoa | **Legajo:** 45487149 | **Modo:** Prop Hunt (Multijugador Asimétrico) | **Versión de Unreal:**
+**Alumno:** Jesus Ochoa | **Legajo:** 45487149 | **Modo:** Prop Hunt (Multijugador) | **Versión de Unreal:**
 UE 5.8.2
 ---
 ## Reglas y Mecánica Principal
